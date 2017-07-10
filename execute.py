@@ -37,22 +37,22 @@ except NameError:
     # py3k has unicode by default
     pass
 else:
-    reload(sys).setdefaultencoding('utf-8')
-    
+    reload(sys).setdefaultencoding("utf-8")
+
 try:
     from ConfigParser import SafeConfigParser
 except:
     from configparser import SafeConfigParser # In Python 3, ConfigParser has been renamed to configparser for PEP 8 compliance.
-    
+
 gConfig = {}
 
-def get_config(config_file='seq2seq.ini'):
+def get_config(config_file="seq2seq.ini"):
     parser = SafeConfigParser()
     parser.read(config_file)
     # get the ints, floats and strings
-    _conf_ints = [ (key, int(value)) for key,value in parser.items('ints') ]
-    _conf_floats = [ (key, float(value)) for key,value in parser.items('floats') ]
-    _conf_strings = [ (key, str(value)) for key,value in parser.items('strings') ]
+    _conf_ints = [ (key, int(value)) for key,value in parser.items("ints") ]
+    _conf_floats = [ (key, float(value)) for key,value in parser.items("floats") ]
+    _conf_strings = [ (key, str(value)) for key,value in parser.items("strings") ]
     return dict(_conf_ints + _conf_floats + _conf_strings)
 
 # We use a number of buckets and pad to the closest one for efficiency.
@@ -101,13 +101,13 @@ def read_data(source_path, target_path, max_size=None):
 def create_model(session, forward_only):
 
   """Create model and initialize or load parameters"""
-  model = seq2seq_model.Seq2SeqModel( gConfig['enc_vocab_size'], gConfig['dec_vocab_size'], _buckets, gConfig['layer_size'], gConfig['num_layers'], gConfig['max_gradient_norm'], gConfig['batch_size'], gConfig['learning_rate'], gConfig['learning_rate_decay_factor'], forward_only=forward_only)
+  model = seq2seq_model.Seq2SeqModel( gConfig["enc_vocab_size"], gConfig["dec_vocab_size"], _buckets, gConfig["layer_size"], gConfig["num_layers"], gConfig["max_gradient_norm"], gConfig["batch_size"], gConfig["learning_rate"], gConfig["learning_rate_decay_factor"], forward_only=forward_only)
 
-  if 'pretrained_model' in gConfig:
-      model.saver.restore(session,gConfig['pretrained_model'])
+  if "pretrained_model" in gConfig:
+      model.saver.restore(session,gConfig["pretrained_model"])
       return model
 
-  ckpt = tf.train.get_checkpoint_state(gConfig['working_directory'])
+  ckpt = tf.train.get_checkpoint_state(gConfig["working_directory"])
   # the checkpoint filename has changed in recent versions of tensorflow
   checkpoint_suffix = ""
   if tf.__version__ > "0.12":
@@ -123,28 +123,30 @@ def create_model(session, forward_only):
 
 def train():
   # prepare dataset
-  print("Preparing data in %s" % gConfig['working_directory'])
-  enc_train, dec_train, enc_dev, dec_dev, _, _ = data_utils.prepare_custom_data(gConfig['working_directory'],gConfig['train_enc'],gConfig['train_dec'],gConfig['test_enc'],gConfig['test_dec'],gConfig['enc_vocab_size'],gConfig['dec_vocab_size'])
+  print("Preparing data in %s" % gConfig["working_directory"])
+  data_utils.prepare_custom_data(gConfig["working_directory"],gConfig["train_enc"],gConfig["train_dec"],gConfig["test_enc"],gConfig["test_dec"],gConfig["enc_vocab_size"],gConfig["dec_vocab_size"])
+  """
+  enc_train, dec_train, enc_dev, dec_dev, _, _ = data_utils.prepare_custom_data(gConfig["working_directory"],gConfig["train_enc"],gConfig["train_dec"],gConfig["test_enc"],gConfig["test_dec"],gConfig["enc_vocab_size"],gConfig["dec_vocab_size"])
 
   # Only allocate 2/3 of the gpu memory to allow for running gpu-based predictions while training:
   gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.666)
   config = tf.ConfigProto(gpu_options=gpu_options)
-  config.gpu_options.allocator_type = 'BFC'
+  config.gpu_options.allocator_type = "BFC"
 
   with tf.Session(config=config) as sess:
     # Create model.
-    print("Creating %d layers of %d units." % (gConfig['num_layers'], gConfig['layer_size']))
+    print("Creating %d layers of %d units." % (gConfig["num_layers"], gConfig["layer_size"]))
     model = create_model(sess, False)
 
     # Read data into buckets and compute their sizes.
     print ("Reading development and training data (limit: %d)."
-           % gConfig['max_train_data_size'])
+           % gConfig["max_train_data_size"])
     dev_set = read_data(enc_dev, dec_dev)
-    train_set = read_data(enc_train, dec_train, gConfig['max_train_data_size'])
+    train_set = read_data(enc_train, dec_train, gConfig["max_train_data_size"])
     train_bucket_sizes = [len(train_set[b]) for b in xrange(len(_buckets))]
     train_total_size = float(sum(train_bucket_sizes))
 
-    # A bucket scale is a list of increasing numbers from 0 to 1 that we'll use
+    # A bucket scale is a list of increasing numbers from 0 to 1 that we"ll use
     # to select a bucket. Length of [scale[i], scale[i+1]] is proportional to
     # the size if i-th training bucket, as used later.
     train_buckets_scale = [sum(train_bucket_sizes[:i + 1]) / train_total_size
@@ -167,14 +169,14 @@ def train():
           train_set, bucket_id)
       _, step_loss, _ = model.step(sess, encoder_inputs, decoder_inputs,
                                    target_weights, bucket_id, False)
-      step_time += (time.time() - start_time) / gConfig['steps_per_checkpoint']
-      loss += step_loss / gConfig['steps_per_checkpoint']
+      step_time += (time.time() - start_time) / gConfig["steps_per_checkpoint"]
+      loss += step_loss / gConfig["steps_per_checkpoint"]
       current_step += 1
 
       # Once in a while, we save checkpoint, print statistics, and run evals.
-      if current_step % gConfig['steps_per_checkpoint'] == 0:
+      if current_step % gConfig["steps_per_checkpoint"] == 0:
         # Print statistics for the previous epoch.
-        perplexity = math.exp(loss) if loss < 300 else float('inf')
+        perplexity = math.exp(loss) if loss < 300 else float("inf")
         print ("global step %d learning rate %.4f step-time %.2f perplexity "
                "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
                          step_time, perplexity))
@@ -183,7 +185,7 @@ def train():
           sess.run(model.learning_rate_decay_op)
         previous_losses.append(loss)
         # Save checkpoint and zero timer and loss.
-        checkpoint_path = os.path.join(gConfig['working_directory'], "seq2seq.ckpt")
+        checkpoint_path = os.path.join(gConfig["working_directory"], "seq2seq.ckpt")
         model.saver.save(sess, checkpoint_path, global_step=model.global_step)
         step_time, loss = 0.0, 0.0
         # Run evals on development set and print their perplexity.
@@ -195,9 +197,10 @@ def train():
               dev_set, bucket_id)
           _, eval_loss, _ = model.step(sess, encoder_inputs, decoder_inputs,
                                        target_weights, bucket_id, True)
-          eval_ppx = math.exp(eval_loss) if eval_loss < 300 else float('inf')
+          eval_ppx = math.exp(eval_loss) if eval_loss < 300 else float("inf")
           print("  eval: bucket %d perplexity %.2f" % (bucket_id, eval_ppx))
         sys.stdout.flush()
+  """
 
 
 def decode():
@@ -212,8 +215,8 @@ def decode():
     model.batch_size = 1  # We decode one sentence at a time.
 
     # Load vocabularies.
-    enc_vocab_path = os.path.join(gConfig['working_directory'],"vocab%d.enc" % gConfig['enc_vocab_size'])
-    dec_vocab_path = os.path.join(gConfig['working_directory'],"vocab%d.dec" % gConfig['dec_vocab_size'])
+    enc_vocab_path = os.path.join(gConfig["working_directory"],"vocab%d.enc" % gConfig["enc_vocab_size"])
+    dec_vocab_path = os.path.join(gConfig["working_directory"],"vocab%d.dec" % gConfig["dec_vocab_size"])
 
     enc_vocab, _ = data_utils.initialize_vocabulary(enc_vocab_path)
     _, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
@@ -266,17 +269,17 @@ def self_test():
                  bucket_id, False)
 
 
-def init_session(sess, conf='seq2seq.ini'):
+def init_session(sess, conf="seq2seq.ini"):
     global gConfig
     gConfig = get_config(conf)
- 
+
     # Create model and load parameters.
     model = create_model(sess, True)
     model.batch_size = 1  # We decode one sentence at a time.
 
     # Load vocabularies.
-    enc_vocab_path = os.path.join(gConfig['working_directory'],"vocab%d.enc" % gConfig['enc_vocab_size'])
-    dec_vocab_path = os.path.join(gConfig['working_directory'],"vocab%d.dec" % gConfig['dec_vocab_size'])
+    enc_vocab_path = os.path.join(gConfig["working_directory"],"vocab%d.enc" % gConfig["enc_vocab_size"])
+    dec_vocab_path = os.path.join(gConfig["working_directory"],"vocab%d.dec" % gConfig["dec_vocab_size"])
 
     enc_vocab, _ = data_utils.initialize_vocabulary(enc_vocab_path)
     _, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
@@ -305,24 +308,24 @@ def decode_line(sess, model, enc_vocab, rev_dec_vocab, sentence):
 
     return " ".join([tf.compat.as_str(rev_dec_vocab[output]) for output in outputs])
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     if len(sys.argv) - 1:
         gConfig = get_config(sys.argv[1])
     else:
         # get configuration from seq2seq.ini
         gConfig = get_config()
 
-    print('\n>> Mode : %s\n' %(gConfig['mode']))
+    print("\n>> Mode : %s\n" %(gConfig["mode"]))
 
-    if gConfig['mode'] == 'train':
+    if gConfig["mode"] == "train":
         # start training
         train()
-    elif gConfig['mode'] == 'test':
+    elif gConfig["mode"] == "test":
         # interactive decode
         decode()
     else:
         # wrong way to execute "serve"
         #   Use : >> python ui/app.py
         #           uses seq2seq_serve.ini as conf file
-        print('Serve Usage : >> python ui/app.py')
-        print('# uses seq2seq_serve.ini as conf file')
+        print("Serve Usage : >> python ui/app.py")
+        print("# uses seq2seq_serve.ini as conf file")
