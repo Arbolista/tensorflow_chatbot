@@ -22,7 +22,6 @@ import os
 import re
 import csv
 import string
-import requests
 import random
 import json
 from itertools import izip
@@ -148,69 +147,44 @@ def data_to_token_ids(data_path, target_path, vocabulary_path,
                                             normalize_digits)
           tokens_file.write(" ".join([str(tok) for tok in token_ids]) + "\n")
 
-def _get_paraphrase(sentence):
-  url = "http://api.microsofttranslator.com/v3/json/paraphrase"
-  params = {
-    "appId": "b7be71d9b2134ef390d51b43fdb24206",
-    "language": "en",
-    "category": "general",
-    "sentence": sentence,
-    "maxTranslation": 20
-  }
-  res = requests.get(url, params=params)
-  if res.ok:
-    if "paraphrases" not in res.content:
-      print(res.content)
-      raise RuntimeError("Microsoft paraphrase API did not work for phrase: " + sentence)
-    print("--- Retrieved paraphrase for sentence. ---")
-    print(sentence)
-    print(res.content["paraphrases"])
-    return res.content["paraphrases"]
-  else:
-    print(res.content)
-    raise RuntimeError("Microsoft paraphrase API did not work for phrase: " + sentence)
 
 def _preprocess_climate_change_data(working_directory, augmented_enc, augmented_dec, train_enc, train_dec):
   if not gfile.Exists(augmented_enc) and not gfile.Exists(augmented_dec):
+    augmented_metatokens = {}
+    augmented_paraphrases = []
+
+    with open(working_directory + "/climate_augmented_dataset.csv", "rb") as climate_augmented_data:
+      augmented_rows = csv.reader(climate_augmented_data, delimiter=',')
+
+      for row in augmented_rows:
+
+        safe_qs = [q.replace('\n', ' ').replace('\r', '') for q in row[0:9]]
+        safe_as = row[9].replace('\n', ' ').replace('\r', '')
+
+        # tokenize output as a random string.
+        output_length = random.randrange(15, 20, 1)
+        output_metatoken = ''.join(random.SystemRandom().choice(string.ascii_uppercase) for _ in range(output_length))
+        augmented_metatokens[output_metatoken] = safe_as
+
+        for q in safe_qs:
+          augmented_paraphrases.append((q, output_metatoken))
+
+    # save output metatokens
+    with open(working_directory + "climate_augmented_metatokens.json", "w") as climate_augmented_metatokens:
+      json.dump(augmented_metatokens, climate_augmented_metatokens, indent=2, sort_keys=True)
+
     with gfile.GFile(augmented_enc, mode="w") as augmented_input:
       with gfile.GFile(train_enc, mode="a") as train_input:
         with gfile.GFile(augmented_dec, mode="w") as augmented_output:
           with gfile.GFile(train_dec, mode="a") as train_output:
-            with open(working_directory + "/climate_augmented_data.csv", "rb") as climate_augmented_data:
-              augmented_rows = csv.reader(climate_augmented_data, delimiter=',')
-              augmented_metatokens = {}
-              augmented_paraphrases = []
-              for row in augmented_rows:
 
-                safe_input = row[0].replace('\n', ' ').replace('\r', '')
-                safe_output = row[1].replace('\n', ' ').replace('\r', '')
-
-                # write raw input sentence
-                augmented_input.write(safe_input + "\n")
-                train_input.write(safe_input + "\n")
-
-                # tokenize output as a random string.
-                output_length = random.randrange(15, 20, 1)
-                output_metatoken = ''.join(random.SystemRandom().choice(string.ascii_uppercase) for _ in range(output_length))
-                augmented_metatokens[output_metatoken] = safe_output
-
-                # write output token
-                augmented_output.write(output_metatoken + "\n")
-                train_output.write(output_metatoken + "\n")
-                #paraphrases = _get_paraphrase()
-                #augmented_paraphrases += [(paraphrase, output_metatoken) for paraphrase in augmented_paraphrases]
-
-              # write input and output for paraphrases.
-              random.shuffle(augmented_paraphrases)
-              for (paraphrase, output_metatoken) in augmented_paraphrases:
-                augmented_input.write(paraphrase + "\n")
-                train_input.write(paraphrase + "\n")
-                augmented_output.write(output_metatoken + "\n")
-                train_output.write(output_metatoken + "\n")
-
-              # save output metatokens
-              with open(working_directory + "climate_augmented_metatokens.json", "w") as climate_augmented_metatokens:
-                json.dump(augmented_metatokens, climate_augmented_metatokens, indent=2, sort_keys=True)
+            # write input and output for paraphrases.
+            random.shuffle(augmented_paraphrases)
+            for q, a in augmented_paraphrases:
+              augmented_input.write(q + "\n")
+              train_input.write(q + "\n")
+              augmented_output.write(a + "\n")
+              train_output.write(a + "\n")
 
 def prepare_custom_data(working_directory, train_enc, train_dec, test_enc, test_dec, enc_vocabulary_size, dec_vocabulary_size, tokenizer=None):
 

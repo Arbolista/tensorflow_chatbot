@@ -22,6 +22,7 @@ import os
 import random
 import sys
 import time
+import json
 
 import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -98,6 +99,7 @@ def read_data(source_path, target_path, max_size=None):
   return data_set
 
 
+
 def create_model(session, forward_only):
 
   """Create model and initialize or load parameters"""
@@ -125,11 +127,12 @@ def train():
   # prepare dataset
   print("Preparing data in %s" % gConfig["working_directory"])
   data_utils.prepare_custom_data(gConfig["working_directory"],gConfig["train_enc"],gConfig["train_dec"],gConfig["test_enc"],gConfig["test_dec"],gConfig["enc_vocab_size"],gConfig["dec_vocab_size"])
-  """
+
   enc_train, dec_train, enc_dev, dec_dev, _, _ = data_utils.prepare_custom_data(gConfig["working_directory"],gConfig["train_enc"],gConfig["train_dec"],gConfig["test_enc"],gConfig["test_dec"],gConfig["enc_vocab_size"],gConfig["dec_vocab_size"])
 
   # Only allocate 2/3 of the gpu memory to allow for running gpu-based predictions while training:
-  gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.666)
+  gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.66)
+  gpu_options.allow_growth = True
   config = tf.ConfigProto(gpu_options=gpu_options)
   config.gpu_options.allocator_type = "BFC"
 
@@ -200,53 +203,59 @@ def train():
           eval_ppx = math.exp(eval_loss) if eval_loss < 300 else float("inf")
           print("  eval: bucket %d perplexity %.2f" % (bucket_id, eval_ppx))
         sys.stdout.flush()
-  """
 
+def _decode_metatokens(output, metatokens):
+    if output in metatokens:
+        return metatokens[output]
+    return output
 
 def decode():
+  with open('./working_dir/climate_augmented_metatokens.json') as data_file:
+    metatokens = json.load(data_file)
 
-  # Only allocate part of the gpu memory when predicting.
-  gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
-  config = tf.ConfigProto(gpu_options=gpu_options)
+    # Only allocate part of the gpu memory when predicting.
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.2)
+    config = tf.ConfigProto(gpu_options=gpu_options)
 
-  with tf.Session(config=config) as sess:
-    # Create model and load parameters.
-    model = create_model(sess, True)
-    model.batch_size = 1  # We decode one sentence at a time.
+    with tf.Session(config=config) as sess:
+        # Create model and load parameters.
+        model = create_model(sess, True)
+        model.batch_size = 1  # We decode one sentence at a time.
 
-    # Load vocabularies.
-    enc_vocab_path = os.path.join(gConfig["working_directory"],"vocab%d.enc" % gConfig["enc_vocab_size"])
-    dec_vocab_path = os.path.join(gConfig["working_directory"],"vocab%d.dec" % gConfig["dec_vocab_size"])
+        # Load vocabularies.
+        enc_vocab_path = os.path.join(gConfig["working_directory"],"vocab%d.enc" % gConfig["enc_vocab_size"])
+        dec_vocab_path = os.path.join(gConfig["working_directory"],"vocab%d.dec" % gConfig["dec_vocab_size"])
 
-    enc_vocab, _ = data_utils.initialize_vocabulary(enc_vocab_path)
-    _, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
+        enc_vocab, _ = data_utils.initialize_vocabulary(enc_vocab_path)
+        _, rev_dec_vocab = data_utils.initialize_vocabulary(dec_vocab_path)
 
-    # Decode from standard input.
-    sys.stdout.write("> ")
-    sys.stdout.flush()
-    sentence = sys.stdin.readline()
-    while sentence:
-      # Get token-ids for the input sentence.
-      token_ids = data_utils.sentence_to_token_ids(tf.compat.as_bytes(sentence), enc_vocab)
-      # Which bucket does it belong to?
-      bucket_id = min([b for b in xrange(len(_buckets))
-                       if _buckets[b][0] > len(token_ids)])
-      # Get a 1-element batch to feed the sentence to the model.
-      encoder_inputs, decoder_inputs, target_weights = model.get_batch(
-          {bucket_id: [(token_ids, [])]}, bucket_id)
-      # Get output logits for the sentence.
-      _, _, output_logits = model.step(sess, encoder_inputs, decoder_inputs,
-                                       target_weights, bucket_id, True)
-      # This is a greedy decoder - outputs are just argmaxes of output_logits.
-      outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
-      # If there is an EOS symbol in outputs, cut them at that point.
-      if data_utils.EOS_ID in outputs:
-        outputs = outputs[:outputs.index(data_utils.EOS_ID)]
-      # Print out French sentence corresponding to outputs.
-      print(" ".join([tf.compat.as_str(rev_dec_vocab[output]) for output in outputs]))
-      print("> ", end="")
-      sys.stdout.flush()
-      sentence = sys.stdin.readline()
+        # Decode from standard input.
+        sys.stdout.write("> ")
+        sys.stdout.flush()
+        sentence = sys.stdin.readline()
+        while sentence:
+            # Get token-ids for the input sentence.
+            token_ids = data_utils.sentence_to_token_ids(tf.compat.as_bytes(sentence), enc_vocab)
+            # Which bucket does it belong to?
+            bucket_id = min([b for b in xrange(len(_buckets))
+                            if _buckets[b][0] > len(token_ids)])
+            # Get a 1-element batch to feed the sentence to the model.
+            encoder_inputs, decoder_inputs, target_weights = model.get_batch(
+                {bucket_id: [(token_ids, [])]}, bucket_id)
+            # Get output logits for the sentence.
+            _, _, output_logits = model.step(sess, encoder_inputs, decoder_inputs,
+                                            target_weights, bucket_id, True)
+            # This is a greedy decoder - outputs are just argmaxes of output_logits.
+            outputs = [int(np.argmax(logit, axis=1)) for logit in output_logits]
+            # If there is an EOS symbol in outputs, cut them at that point.
+            if data_utils.EOS_ID in outputs:
+                outputs = outputs[:outputs.index(data_utils.EOS_ID)]
+            # Print out French sentence corresponding to outputs.
+
+            print(" ".join([_decode_metatokens(tf.compat.as_str(rev_dec_vocab[output]), metatokens) for output in outputs]))
+            print("> ", end="")
+            sys.stdout.flush()
+            sentence = sys.stdin.readline()
 
 
 def self_test():
