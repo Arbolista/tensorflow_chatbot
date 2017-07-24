@@ -3,7 +3,7 @@
 Data
 ============
 
-Please download the data/ and working_dir/ directories from Dropbox and unzip them here (they should be unzipped so their contents are accessible within ./data/ and ./working_dir/ paths).
+Please download the data/ and working_dir/ directories from Dropbox and unzip them here (they should be unzipped so their contents are accessible within ./data/ and ./working_dir/ paths). You can access the folder here: https://www.dropbox.com/sh/tqdiiahuvmua1xt/AAB7GmUQmCYJvGIZu24x5s-Ca?dl=0
 
 Those directories contain all of the necessary data to run the test in test mode, create new vocabulary sets, and re-train.
 
