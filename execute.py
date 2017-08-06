@@ -23,6 +23,7 @@ import random
 import sys
 import time
 import json
+import datetime
 
 import numpy as np
 from six.moves import xrange  # pylint: disable=redefined-builtin
@@ -30,6 +31,7 @@ import tensorflow as tf
 
 import data_utils
 import seq2seq_model
+from logger import Logger
 
 # python2 and python3 support
 try:
@@ -124,6 +126,9 @@ def create_model(session, forward_only):
 
 
 def train():
+  dirname = 'working_dir/%s' % datetime.datetime.now().strftime('%Y_%m_%d_%H.%M')
+  logger = Logger(dirname)
+
   # prepare dataset
   print("Preparing data in %s" % gConfig["working_directory"])
   data_utils.prepare_custom_data(gConfig["working_directory"],gConfig["train_enc"],gConfig["train_dec"],gConfig["test_enc"],gConfig["test_dec"],gConfig["enc_vocab_size"],gConfig["dec_vocab_size"])
@@ -183,6 +188,7 @@ def train():
         print ("global step %d learning rate %.4f step-time %.2f perplexity "
                "%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
                          step_time, perplexity))
+        logger.log_scalar('perplexity', perplexity, current_step)
         # Decrease learning rate if no improvement was seen over last 3 times.
         if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
           sess.run(model.learning_rate_decay_op)
@@ -190,6 +196,7 @@ def train():
         # Save checkpoint and zero timer and loss.
         checkpoint_path = os.path.join(gConfig["working_directory"], "seq2seq.ckpt")
         model.saver.save(sess, checkpoint_path, global_step=model.global_step)
+
         step_time, loss = 0.0, 0.0
         # Run evals on development set and print their perplexity.
         for bucket_id in xrange(len(_buckets)):
@@ -202,6 +209,7 @@ def train():
                                        target_weights, bucket_id, True)
           eval_ppx = math.exp(eval_loss) if eval_loss < 300 else float("inf")
           print("  eval: bucket %d perplexity %.2f" % (bucket_id, eval_ppx))
+          logger.log_scalar(('perplexity bucket%d' % bucket_id), eval_ppx, current_step)
         sys.stdout.flush()
 
 def _decode_metatokens(output, metatokens):
