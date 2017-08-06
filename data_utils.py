@@ -20,6 +20,11 @@ from __future__ import print_function
 
 import os
 import re
+import csv
+import string
+import random
+import json
+from itertools import izip
 
 from six.moves import urllib
 
@@ -50,10 +55,29 @@ def basic_tokenizer(sentence):
     words.extend(re.split(_WORD_SPLIT, space_separated_fragment))
   return [w for w in words if w]
 
+def _append_augmented_vocab(vocab_list, augmented_data_path, tokenizer=None):
+  ivocab_list = iter(vocab_list)
+  existing_vocab = dict(izip(ivocab_list, ivocab_list))
 
-def create_vocabulary(vocabulary_path, data_path, max_vocabulary_size,
+  augemented_vocab = {}
+  with gfile.GFile(augmented_data_path, mode="rb") as f:
+    for line in f:
+      tokens = tokenizer(line) if tokenizer else basic_tokenizer(line)
+      # we don't normalize digits here.
+      for w in tokens:
+        if w not in existing_vocab:
+          augemented_vocab[w] = True
+    # replace the least frequent words with the augmented data.
+    for _ in augemented_vocab.keys():
+      vocab_list.pop()
+    for w in augemented_vocab.keys():
+      vocab_list.append(w)
+
+    return vocab_list
+
+def create_vocabulary(vocabulary_path, data_path, max_vocabulary_size, augmented_data_path,
                       tokenizer=None, normalize_digits=True):
-    
+
   if not gfile.Exists(vocabulary_path):
     print("Creating vocabulary %s from %s" % (vocabulary_path, data_path))
     vocab = {}
@@ -74,10 +98,12 @@ def create_vocabulary(vocabulary_path, data_path, max_vocabulary_size,
       print('>> Full Vocabulary Size :',len(vocab_list))
       if len(vocab_list) > max_vocabulary_size:
         vocab_list = vocab_list[:max_vocabulary_size]
+
+      vocab_list = _append_augmented_vocab(vocab_list, augmented_data_path)
+
       with gfile.GFile(vocabulary_path, mode="wb") as vocab_file:
         for w in vocab_list:
           vocab_file.write(w + b"\n")
-
 
 def initialize_vocabulary(vocabulary_path):
 
@@ -122,14 +148,55 @@ def data_to_token_ids(data_path, target_path, vocabulary_path,
           tokens_file.write(" ".join([str(tok) for tok in token_ids]) + "\n")
 
 
+def _preprocess_climate_change_data(working_directory, augmented_enc, augmented_dec, train_enc, train_dec):
+  if not gfile.Exists(augmented_enc) and not gfile.Exists(augmented_dec):
+    augmented_metatokens = {}
+    augmented_paraphrases = []
+
+    with open(working_directory + "/climate_augmented_dataset.csv", "rb") as climate_augmented_data:
+      augmented_rows = csv.reader(climate_augmented_data, delimiter=',')
+
+      for row in augmented_rows:
+
+        safe_qs = [q.replace('\n', ' ').replace('\r', '') for q in row[0:9]]
+        safe_as = row[9].replace('\n', ' ').replace('\r', '')
+
+        # tokenize output as a random string.
+        output_length = random.randrange(15, 20, 1)
+        output_metatoken = ''.join(random.SystemRandom().choice(string.ascii_uppercase) for _ in range(output_length))
+        augmented_metatokens[output_metatoken] = safe_as
+
+        for q in safe_qs:
+          augmented_paraphrases.append((q, output_metatoken))
+
+    # save output metatokens
+    with open(working_directory + "climate_augmented_metatokens.json", "w") as climate_augmented_metatokens:
+      json.dump(augmented_metatokens, climate_augmented_metatokens, indent=2, sort_keys=True)
+
+    with gfile.GFile(augmented_enc, mode="w") as augmented_input:
+      with gfile.GFile(train_enc, mode="a") as train_input:
+        with gfile.GFile(augmented_dec, mode="w") as augmented_output:
+          with gfile.GFile(train_dec, mode="a") as train_output:
+
+            # write input and output for paraphrases.
+            random.shuffle(augmented_paraphrases)
+            for q, a in augmented_paraphrases:
+              augmented_input.write(q + "\n")
+              train_input.write(q + "\n")
+              augmented_output.write(a + "\n")
+              train_output.write(a + "\n")
 
 def prepare_custom_data(working_directory, train_enc, train_dec, test_enc, test_dec, enc_vocabulary_size, dec_vocabulary_size, tokenizer=None):
+
+    augmented_enc_path = os.path.join(working_directory, "augmented.enc")
+    augmented_dec_path = os.path.join(working_directory, "augmented.dec")
+    _preprocess_climate_change_data(working_directory, augmented_enc_path, augmented_dec_path, train_enc, train_dec)
 
     # Create vocabularies of the appropriate sizes.
     enc_vocab_path = os.path.join(working_directory, "vocab%d.enc" % enc_vocabulary_size)
     dec_vocab_path = os.path.join(working_directory, "vocab%d.dec" % dec_vocabulary_size)
-    create_vocabulary(enc_vocab_path, train_enc, enc_vocabulary_size, tokenizer)
-    create_vocabulary(dec_vocab_path, train_dec, dec_vocabulary_size, tokenizer)
+    create_vocabulary(enc_vocab_path, train_enc, enc_vocabulary_size, augmented_enc_path, tokenizer)
+    create_vocabulary(dec_vocab_path, train_dec, dec_vocabulary_size, augmented_dec_path, tokenizer)
 
     # Create token ids for the training data.
     enc_train_ids_path = train_enc + (".ids%d" % enc_vocabulary_size)

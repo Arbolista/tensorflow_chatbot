@@ -1,2 +1,4 @@
 data/
+working_dir/
 *.pyc
+.DS_Store
